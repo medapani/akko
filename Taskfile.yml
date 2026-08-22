@@ -1,0 +1,95 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+vars:
+  BINARY_NAME: "akko"
+  VERSION:
+    sh: git describe --tags --abbrev=0 2>/dev/null || echo ""
+  LDFLAGS: '-ldflags "-s -w -X main.appVersion={{.VERSION}}"'
+  STRIP: "-trimpath -buildvcs=false"
+
+tasks:
+  list:
+    desc: タスク一覧を表示
+    cmds:
+      - task --list
+
+  build:
+    desc: マルチプラットフォームビルド
+    deps: [build-mac, build-linux]
+
+  build-mac:
+    desc: macOS向けビルド
+    cmds:
+      - echo "Building..."
+      - go build {{.STRIP}} {{.LDFLAGS}} -o bin/{{.BINARY_NAME}}-darwin .
+      - echo "Built binaries:"
+      - ls -lh bin/{{.BINARY_NAME}}-darwin
+
+  build-linux:
+    desc: Linux向けビルド
+    cmds:
+      - echo "Building for Linux..."
+      - GOOS=linux GOARCH=amd64 go build {{.STRIP}} {{.LDFLAGS}} -o bin/{{.BINARY_NAME}}-linux-amd64 .
+      - GOOS=linux GOARCH=arm64 go build {{.STRIP}} {{.LDFLAGS}} -o bin/{{.BINARY_NAME}}-linux-arm64 .
+      - echo "Built binaries:"
+      - ls -lh bin/{{.BINARY_NAME}}-linux-*
+
+  build-windows:
+    desc: Windows向けビルド
+    cmds:
+      - echo "Building for Windows..."
+      - GOOS=windows GOARCH=amd64 go build {{.STRIP}} {{.LDFLAGS}} -o bin/{{.BINARY_NAME}}-windows-amd64.exe .
+      - GOOS=windows GOARCH=arm64 go build {{.STRIP}} {{.LDFLAGS}} -o bin/{{.BINARY_NAME}}-windows-arm64.exe .
+      - echo "Built binaries:"
+      - ls -lh bin/{{.BINARY_NAME}}-windows-*
+
+  run:
+    desc: 実行
+    deps: [build]
+    cmds:
+      - echo "Running..."
+      - ./bin/{{.BINARY_NAME}}
+
+  clean:
+    desc: クリーンアップ
+    cmds:
+      - echo "Cleaning..."
+      - rm -rf bin/
+      - go clean
+
+  test:
+    desc: テスト
+    cmds:
+      - echo "Testing..."
+      - go test -v ./...
+
+  install:
+    desc: ~/bin/ にインストール
+    deps: [build]
+    cmds:
+      - echo "Installing to ~/bin/..."
+      - mkdir -p ~/bin
+      - cp bin/{{.BINARY_NAME}} ~/bin/
+      - echo "Installed to ~/bin/{{.BINARY_NAME}}"
+
+  deps:
+    desc: 依存関係を更新
+    cmds:
+      - echo "Updating dependencies..."
+      - go mod tidy
+      - go mod download
+
+  fmt:
+    desc: フォーマット
+    cmds:
+      - echo "Formatting..."
+      - go fmt ./...
+
+  lint:
+    desc: リント
+    cmds:
+      - echo "Linting..."
+      - which golangci-lint || (echo "golangci-lint not installed. Installing..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
+      - golangci-lint run ./...
