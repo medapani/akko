@@ -93,6 +93,79 @@ func TestActionRoundTripDefaultOutputPreservesName(t *testing.T) {
 	}
 }
 
+func TestActionDecryptSingleFileToOutputDirectory(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "sample.txt")
+	enc := filepath.Join(dir, "sample.txt.akko")
+	outDir := filepath.Join(dir, "out")
+	pw := []byte("password")
+
+	if err := os.WriteFile(input, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := EncryptFile(input, enc, pw, false); err != nil {
+		t.Fatalf("encrypt failed: %v", err)
+	}
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	mode, outPath, count, err := Action(enc, outDir, pw, false, nil)
+	if err != nil {
+		t.Fatalf("decrypt action failed: %v", err)
+	}
+	if mode != ModeDecrypt {
+		t.Fatalf("expected ModeDecrypt, got %v", mode)
+	}
+	if count != 1 {
+		t.Fatalf("expected processed count 1, got %d", count)
+	}
+	want := filepath.Join(outDir, "sample.txt")
+	if outPath != want {
+		t.Fatalf("expected output path %q, got %q", want, outPath)
+	}
+
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hello" {
+		t.Fatalf("unexpected decrypted content: got %q", string(got))
+	}
+}
+
+func TestActionEncryptSingleFileToOutputDirectory(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "plain.txt")
+	outDir := filepath.Join(dir, "enc-out")
+	pw := []byte("password")
+
+	if err := os.WriteFile(input, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	mode, outPath, count, err := Action(input, outDir, pw, false, nil)
+	if err != nil {
+		t.Fatalf("encrypt action failed: %v", err)
+	}
+	if mode != ModeEncrypt {
+		t.Fatalf("expected ModeEncrypt, got %v", mode)
+	}
+	if count != 1 {
+		t.Fatalf("expected processed count 1, got %d", count)
+	}
+	want := filepath.Join(outDir, "plain.txt.akko")
+	if outPath != want {
+		t.Fatalf("expected output path %q, got %q", want, outPath)
+	}
+	if _, err := os.Stat(outPath); err != nil {
+		t.Fatalf("expected encrypted output to exist: %v", err)
+	}
+}
+
 func TestDecryptWrongPassword(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "plain.bin")

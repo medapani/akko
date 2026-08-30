@@ -46,6 +46,29 @@ func DetectMode(inputPath string) (Mode, error) {
 	return ModeEncrypt, nil
 }
 
+// resolveSingleFileOutputPath interprets outputPath for single-file
+// encrypt/decrypt operations. If outputPath points to an existing directory,
+// the result becomes "<outputPath>/<default output filename>".
+func resolveSingleFileOutputPath(inputPath string, mode Mode, originalExt, outputPath string) (string, error) {
+	defaultPath := DefaultOutputPath(inputPath, mode, originalExt)
+	if outputPath == "" {
+		return defaultPath, nil
+	}
+
+	st, err := os.Stat(outputPath)
+	if err == nil {
+		if st.IsDir() {
+			return filepath.Join(outputPath, filepath.Base(defaultPath)), nil
+		}
+		return outputPath, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	return outputPath, nil
+}
+
 func DefaultOutputPath(inputPath string, mode Mode, originalExt string) string {
 	if mode == ModeEncrypt {
 		return inputPath + ".akko"
@@ -271,8 +294,9 @@ func Action(inputPath, outputPath string, password []byte, force bool, onEntry o
 			}
 			return ModeDecryptArchive, outDir, len(extracted), nil
 		}
-		if outputPath == "" {
-			outputPath = DefaultOutputPath(inputPath, mode, h.OriginalExt)
+		outputPath, err = resolveSingleFileOutputPath(inputPath, mode, h.OriginalExt, outputPath)
+		if err != nil {
+			return mode, "", 0, err
 		}
 		err = DecryptFile(inputPath, outputPath, password, force)
 		if err != nil {
@@ -281,8 +305,9 @@ func Action(inputPath, outputPath string, password []byte, force bool, onEntry o
 		return mode, outputPath, 1, nil
 	}
 
-	if outputPath == "" {
-		outputPath = DefaultOutputPath(inputPath, mode, "")
+	outputPath, err = resolveSingleFileOutputPath(inputPath, mode, "", outputPath)
+	if err != nil {
+		return mode, "", 0, err
 	}
 	err = EncryptFile(inputPath, outputPath, password, force)
 	if err != nil {
