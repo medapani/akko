@@ -156,13 +156,16 @@ func EncryptFile(inputPath, outputPath string, password []byte, force bool) erro
 			return err
 		}
 
-		buf := make([]byte, chunkSize)
+		// Reserve space for the authentication tag so Seal can reuse buf in place.
+		buf := make([]byte, chunkSize, chunkSize+gcm.Overhead())
+		defer clear(buf[:cap(buf)])
+
 		var idx uint32
 		for {
 			n, readErr := in.Read(buf)
 			if n > 0 {
 				nonce := chunkNonce(h.NonceBase, idx)
-				ciphertext := gcm.Seal(nil, nonce, buf[:n], headBytes)
+				ciphertext := gcm.Seal(buf[:0], nonce, buf[:n], headBytes)
 				var lenBuf [4]byte
 				binary.BigEndian.PutUint32(lenBuf[:], uint32(len(ciphertext)))
 				if _, err := out.Write(lenBuf[:]); err != nil {
@@ -219,6 +222,10 @@ func DecryptFile(inputPath, outputPath string, password []byte, force bool) erro
 	}
 
 	if err := safeWriteFile(outputPath, func(out *os.File) error {
+		// Open reuses this ciphertext storage for each authenticated plaintext.
+		buf := make([]byte, chunkSize+gcm.Overhead())
+		defer clear(buf)
+
 		var idx uint32
 		var lenBuf [4]byte
 		for {
@@ -231,17 +238,17 @@ func DecryptFile(inputPath, outputPath string, password []byte, force bool) erro
 			}
 
 			chunkLen := binary.BigEndian.Uint32(lenBuf[:])
-			if chunkLen == 0 {
+			if chunkLen < uint32(gcm.Overhead()) || chunkLen > uint32(len(buf)) {
 				return ErrInvalidAkkoFile
 			}
 
-			ciphertext := make([]byte, chunkLen)
+			ciphertext := buf[:chunkLen]
 			if _, err := io.ReadFull(in, ciphertext); err != nil {
 				return ErrInvalidAkkoFile
 			}
 
 			nonce := chunkNonce(h.NonceBase, idx)
-			plaintext, err := gcm.Open(nil, nonce, ciphertext, headBytes)
+			plaintext, err := gcm.Open(ciphertext[:0], nonce, ciphertext, headBytes)
 			if err != nil {
 				return ErrAuthFailed
 			}

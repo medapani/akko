@@ -14,6 +14,10 @@ import (
 const (
 	keySize  = 32
 	saltSize = 16
+
+	maxKDFMemoryKiB   uint32 = 256 * 1024
+	maxKDFIterations  uint32 = 4
+	maxKDFParallelism uint8  = 2
 )
 
 // KDFParams stores Argon2id parameters embedded in the header.
@@ -41,12 +45,27 @@ func deriveKey(password []byte, salt []byte, params KDFParams) ([]byte, error) {
 	if len(salt) != saltSize {
 		return nil, fmt.Errorf("invalid salt length: %d", len(salt))
 	}
-	if params.Memory == 0 || params.Iterations == 0 || params.Parallelism == 0 {
-		return nil, errors.New("invalid kdf parameters")
+	if err := validateKDFParams(params); err != nil {
+		return nil, err
 	}
 
 	key := argon2.IDKey(password, salt, params.Iterations, params.Memory, params.Parallelism, keySize)
 	return key, nil
+}
+
+// validateKDFParams bounds work before allocating memory or running Argon2id.
+// File headers have not been authenticated when their KDF parameters are read.
+// The resource limits match the supported high-security profile.
+func validateKDFParams(params KDFParams) error {
+	if params.Memory > maxKDFMemoryKiB || params.Iterations > maxKDFIterations || params.Parallelism > maxKDFParallelism {
+		return errors.New("KDF resource limit exceeded (maximum 256 MiB, 4 iterations, parallelism 2)")
+	}
+
+	if params.Iterations == 0 || params.Parallelism == 0 || params.Memory < 8*uint32(params.Parallelism) {
+		return errors.New("invalid kdf parameters")
+	}
+
+	return nil
 }
 
 func newGCM(key []byte) (cipher.AEAD, error) {
